@@ -1,9 +1,10 @@
 [package]
-name = "flarust"
-version = "0.1.0"
+name = "flaretro"
+version = "0.1.1"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
+rust-libretro-sys = "0.1.5"
