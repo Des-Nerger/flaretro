@@ -1,5 +1,5 @@
 # flaretro
 ```sh
 $ cargo build --release
-$ retroarch -L target/release/libflaretro.so
+$ retroarch -vL target/release/libflaretro.so
 ```

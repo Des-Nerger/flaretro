@@ -2,14 +2,20 @@ use {
 	core::{ffi::c_void, ptr::null_mut},
 	rust_libretro_sys::{
 		retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_info,
-		retro_input_poll_t, retro_input_state_t, retro_system_av_info, retro_system_info,
-		retro_video_refresh_t, size_t, RETRO_API_VERSION, RETRO_REGION_PAL,
+		retro_input_poll_t, retro_input_state_t, retro_log_level::RETRO_LOG_INFO, retro_system_av_info,
+		retro_system_info, retro_video_refresh_t, size_t, RETRO_API_VERSION, RETRO_REGION_PAL,
 	},
 	std::os::raw::{c_char, c_uint},
 };
 
+extern "C" {
+	fn fallback_log(level: u32, fmt: *const u8, ...);
+}
+
 #[no_mangle]
-pub unsafe extern "C" fn retro_init() {}
+pub unsafe extern "C" fn retro_init() {
+	fallback_log(RETRO_LOG_INFO as u32, b"Hello, log\n\x00" as *const u8);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_deinit() {}
