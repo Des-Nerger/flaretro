@@ -1,15 +1,36 @@
+#![feature(c_variadic)]
+
 use {
-	core::{ffi::c_void, ptr::null_mut},
+	core::{
+		ffi::{c_void, VaList, VaListImpl},
+		ptr::null_mut,
+	},
 	rust_libretro_sys::{
 		retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_info,
-		retro_input_poll_t, retro_input_state_t, retro_system_av_info, retro_system_info,
-		retro_video_refresh_t, size_t, RETRO_API_VERSION, RETRO_REGION_PAL,
+		retro_input_poll_t, retro_input_state_t, retro_log_level::RETRO_LOG_INFO, retro_system_av_info,
+		retro_system_info, retro_video_refresh_t, size_t, RETRO_API_VERSION, RETRO_REGION_PAL,
 	},
-	std::os::raw::{c_char, c_uint},
+	std::os::raw::{c_char, c_int, c_uint},
 };
 
+extern "C" {
+	static mut stderr: *mut c_void;
+	fn vfprintf(_: *mut c_void, _: *const c_char, _: VaList) -> c_int;
+}
+
+unsafe extern "C" fn fallback_log(_level: u32, fmt: *const c_char, args: ...) {
+	let mut va: VaListImpl;
+	va = args.clone();
+	vfprintf(stderr, fmt, va.as_va_list());
+}
+
 #[no_mangle]
-pub unsafe extern "C" fn retro_init() {}
+pub unsafe extern "C" fn retro_init() {
+	fallback_log(
+		RETRO_LOG_INFO as u32,
+		b"Hello, log\n\x00" as *const u8 as *const i8,
+	);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_deinit() {}

@@ -1,5 +1,6 @@
 # flaretro
 ```sh
-$ cargo build --release
-$ retroarch -L target/release/libflaretro.so
+$ rustup install nightly
+$ cargo +nightly build --release
+$ retroarch -vL target/release/libflaretro.so
 ```
