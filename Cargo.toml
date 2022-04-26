@@ -8,3 +8,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rust-libretro-sys = "0.1.5"
+
+[profile.release]
+strip = true
