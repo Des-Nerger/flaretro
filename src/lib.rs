@@ -4,6 +4,7 @@
 use {
 	core::{
 		ffi::{c_void, VaList},
+		mem::size_of,
 		ptr::{copy, null, null_mut},
 	},
 	libc::FILE,
@@ -162,7 +163,18 @@ pub unsafe extern "C" fn retro_set_controller_port_device(_port: c_uint, _device
 pub unsafe extern "C" fn retro_reset() {}
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_run() {}
+pub unsafe extern "C" fn retro_run() {
+	INPUT_POLL_CB.unwrap()();
+	static mut ODD: bool = false;
+	FRAME_BUF.fill(if ODD { 0x55_55_55_55 } else { 0x99_99_99_99 });
+	ODD = !ODD;
+	VIDEO_CB.unwrap()(
+		FRAME_BUF.as_ptr() as *const c_void,
+		VIDEO_WIDTH as c_uint,
+		VIDEO_HEIGHT as c_uint,
+		(VIDEO_WIDTH as size_t) * (size_of::<u32>() as size_t),
+	);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_serialize_size() -> size_t {
@@ -186,14 +198,16 @@ pub unsafe extern "C" fn retro_cheat_reset() {}
 pub unsafe extern "C" fn retro_cheat_set(_index: c_uint, _enabled: bool, _code: *const c_char) {}
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
-	if info != null() {
-		log_cb!(
-			RETRO_LOG_ERROR,
-			"Content file is given, but this core doesn't support any !!!\n\0",
-		);
-		return false;
-	}
+pub unsafe extern "C" fn retro_load_game(_info: *const retro_game_info) -> bool {
+	/*
+		if info != null() {
+			log_cb!(
+				RETRO_LOG_ERROR,
+				"Content file is given, but this core doesn't support any !!!\n\0",
+			);
+			return false;
+		}
+	*/
 	if !ENVIRON_CB.unwrap()(
 		RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
 		&RETRO_PIXEL_FORMAT_XRGB8888 as *const retro_pixel_format as *mut c_void,
