@@ -26,22 +26,36 @@ extern "C" {
 }
 
 #[allow(improper_ctypes_definitions)]
-unsafe extern "C" fn fallback_log(_level: retro_log_level, fmt: *const c_char, mut args: ...) {
+unsafe extern "C" fn log_cb(_level: retro_log_level, fmt: *const c_char, mut args: ...) {
 	vfprintf(stderr, fmt, args.as_va_list());
 }
+unsafe extern "C" fn environ_cb(_: c_uint, _: *mut c_void) -> bool {
+	unimplemented!()
+}
+unsafe extern "C" fn video_cb(_: *const c_void, _: c_uint, _: c_uint, _: size_t) {
+	unimplemented!()
+}
+unsafe extern "C" fn input_poll_cb() {
+	unimplemented!()
+}
+unsafe extern "C" fn input_state_cb(_: c_uint, _: c_uint, _: c_uint, _: c_uint) -> i16 {
+	unimplemented!()
+}
+unsafe extern "C" fn audio_cb(_: i16, _: i16) {
+	unimplemented!()
+}
+unsafe extern "C" fn audio_batch_cb(_: *const i16, _: size_t) -> size_t {
+	unimplemented!()
+}
 
-const VIDEO_WIDTH: u32 = 1280;
-const VIDEO_HEIGHT: u32 = 720;
-type RetroLogPrintf = unsafe extern "C" fn(_: retro_log_level, _: *const c_char, ...);
-
-static mut LOG_CB: RetroLogPrintf = fallback_log;
-static mut ENVIRON_CB: retro_environment_t = None;
-static mut FRAME_BUF: Vec<u32> = Vec::new();
-static mut VIDEO_CB: retro_video_refresh_t = None;
-static mut INPUT_POLL_CB: retro_input_poll_t = None;
-static mut INPUT_STATE_CB: retro_input_state_t = None;
-static mut AUDIO_CB: retro_audio_sample_t = None;
-static mut AUDIO_BATCH_CB: retro_audio_sample_batch_t = None;
+static mut LOG_CB: unsafe extern "C" fn(retro_log_level, *const c_char, ...) = log_cb;
+static mut ENVIRON_CB: unsafe extern "C" fn(c_uint, *mut c_void) -> bool = environ_cb;
+static mut VIDEO_CB: unsafe extern "C" fn(*const c_void, c_uint, c_uint, size_t) = video_cb;
+static mut INPUT_POLL_CB: unsafe extern "C" fn() = input_poll_cb;
+static mut INPUT_STATE_CB: unsafe extern "C" fn(c_uint, c_uint, c_uint, c_uint) -> i16 =
+	input_state_cb;
+static mut AUDIO_CB: unsafe extern "C" fn(i16, i16) = audio_cb;
+static mut AUDIO_BATCH_CB: unsafe extern "C" fn(*const i16, size_t) -> size_t = audio_batch_cb;
 
 macro_rules! log_cb {
 	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
@@ -52,6 +66,10 @@ macro_rules! log_cb {
 		);
 	};
 }
+
+const VIDEO_WIDTH: u32 = 1280;
+const VIDEO_HEIGHT: u32 = 720;
+static mut FRAME_BUF: Vec<u32> = Vec::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_init() {
@@ -71,21 +89,19 @@ pub unsafe extern "C" fn retro_api_version() -> c_uint {
 #[no_mangle]
 pub unsafe extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
 	const NAME: &'static str = env!("CARGO_PKG_NAME");
-	const NAME_LEN: usize = NAME.len();
-	static mut CNAME: [c_char; NAME_LEN + 1] = [0; NAME_LEN + 1];
+	static mut CNAME: [c_char; NAME.len() + 1] = [0; NAME.len() + 1];
 	const VER: &'static str = env!("CARGO_PKG_VERSION");
-	const VER_LEN: usize = VER.len();
-	static mut CVER: [c_char; VER_LEN + 1] = [0; VER_LEN + 1];
+	static mut CVER: [c_char; VER.len() + 1] = [0; VER.len() + 1];
 	if CNAME[0] == 0 {
 		copy(
 			NAME.as_ptr() as *const c_char,
 			&mut CNAME as *mut c_char,
-			NAME_LEN,
+			NAME.len(),
 		);
 		copy(
 			VER.as_ptr() as *const c_char,
 			&mut CVER as *mut c_char,
-			VER_LEN,
+			VER.len(),
 		);
 	}
 	*info = retro_system_info {
@@ -116,14 +132,13 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
-	ENVIRON_CB = cb;
-	let environ_cb = ENVIRON_CB.unwrap();
-	environ_cb(
+	ENVIRON_CB = cb.unwrap();
+	ENVIRON_CB(
 		RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME,
 		&true as *const bool as *mut c_void,
 	);
 	let mut logging = retro_log_callback { log: None };
-	if environ_cb(
+	if ENVIRON_CB(
 		RETRO_ENVIRONMENT_GET_LOG_INTERFACE,
 		&mut logging as *mut retro_log_callback as *mut c_void,
 	) {
@@ -133,27 +148,27 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_video_refresh(cb: retro_video_refresh_t) {
-	VIDEO_CB = cb;
+	VIDEO_CB = cb.unwrap();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_audio_sample(cb: retro_audio_sample_t) {
-	AUDIO_CB = cb;
+	AUDIO_CB = cb.unwrap();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_audio_sample_batch(cb: retro_audio_sample_batch_t) {
-	AUDIO_BATCH_CB = cb;
+	AUDIO_BATCH_CB = cb.unwrap();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_input_poll(cb: retro_input_poll_t) {
-	INPUT_POLL_CB = cb;
+	INPUT_POLL_CB = cb.unwrap();
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_input_state(cb: retro_input_state_t) {
-	INPUT_STATE_CB = cb;
+	INPUT_STATE_CB = cb.unwrap();
 }
 
 #[no_mangle]
@@ -164,11 +179,11 @@ pub unsafe extern "C" fn retro_reset() {}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_run() {
-	INPUT_POLL_CB.unwrap()();
+	INPUT_POLL_CB();
 	static mut ODD: bool = false;
 	FRAME_BUF.fill(if ODD { 0x55_55_55_55 } else { 0x99_99_99_99 });
 	ODD = !ODD;
-	VIDEO_CB.unwrap()(
+	VIDEO_CB(
 		FRAME_BUF.as_ptr() as *const c_void,
 		VIDEO_WIDTH as c_uint,
 		VIDEO_HEIGHT as c_uint,
@@ -208,7 +223,7 @@ pub unsafe extern "C" fn retro_load_game(_info: *const retro_game_info) -> bool 
 			return false;
 		}
 	*/
-	if !ENVIRON_CB.unwrap()(
+	if !ENVIRON_CB(
 		RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
 		&RETRO_PIXEL_FORMAT_XRGB8888 as *const retro_pixel_format as *mut c_void,
 	) {
