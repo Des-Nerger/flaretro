@@ -12,7 +12,7 @@ use {
 		retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_geometry,
 		retro_game_info, retro_input_poll_t, retro_input_state_t, retro_log_callback,
 		retro_log_level::{self, RETRO_LOG_ERROR},
-		retro_pixel_format::{self, RETRO_PIXEL_FORMAT_XRGB8888},
+		retro_pixel_format::RETRO_PIXEL_FORMAT_XRGB8888,
 		retro_system_av_info, retro_system_info, retro_system_timing, retro_video_refresh_t, size_t,
 		RETRO_API_VERSION, RETRO_ENVIRONMENT_GET_LOG_INTERFACE, RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
 		RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, RETRO_REGION_PAL,
@@ -61,7 +61,7 @@ macro_rules! log_cb {
 	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
 		LOG_CB(
 			$level,
-			$fmt.as_ptr() as *const c_char,
+			$fmt.as_ptr() as *const _,
 			$( $arg ),*
 		);
 	};
@@ -73,7 +73,7 @@ static mut FRAME_BUF: Vec<u32> = Vec::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_init() {
-	FRAME_BUF.resize((VIDEO_WIDTH * VIDEO_HEIGHT) as usize, 0);
+	FRAME_BUF.resize((VIDEO_WIDTH * VIDEO_HEIGHT) as _, 0);
 }
 
 #[no_mangle]
@@ -94,19 +94,19 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
 	static mut CVER: [c_char; VER.len() + 1] = [0; VER.len() + 1];
 	if CNAME[0] == 0 {
 		copy(
-			NAME.as_ptr() as *const c_char,
-			&mut CNAME as *mut c_char,
+			NAME.as_ptr() as *const _,
+			&mut CNAME as *mut _ as *mut _,
 			NAME.len(),
 		);
 		copy(
-			VER.as_ptr() as *const c_char,
-			&mut CVER as *mut c_char,
+			VER.as_ptr() as *const _,
+			&mut CVER as *mut _ as *mut _,
 			VER.len(),
 		);
 	}
 	*info = retro_system_info {
-		library_name: &CNAME as *const c_char,
-		library_version: &CVER as *const c_char,
+		library_name: &CNAME as *const _,
+		library_version: &CVER as *const _,
 		valid_extensions: null(),
 		need_fullpath: false,
 		block_extract: true,
@@ -135,12 +135,12 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB = cb.unwrap();
 	ENVIRON_CB(
 		RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME,
-		&true as *const bool as *mut c_void,
+		&true as *const _ as *mut _,
 	);
 	let mut logging = retro_log_callback { log: None };
 	if ENVIRON_CB(
 		RETRO_ENVIRONMENT_GET_LOG_INTERFACE,
-		&mut logging as *mut retro_log_callback as *mut c_void,
+		&mut logging as *mut _ as *mut _,
 	) {
 		LOG_CB = logging.log.unwrap();
 	}
@@ -184,10 +184,10 @@ pub unsafe extern "C" fn retro_run() {
 	FRAME_BUF.fill(if ODD { 0x55_55_55_55 } else { 0x99_99_99_99 });
 	ODD = !ODD;
 	VIDEO_CB(
-		FRAME_BUF.as_ptr() as *const c_void,
-		VIDEO_WIDTH as c_uint,
-		VIDEO_HEIGHT as c_uint,
-		(VIDEO_WIDTH as size_t) * (size_of::<u32>() as size_t),
+		FRAME_BUF.as_ptr() as *const _,
+		VIDEO_WIDTH as _,
+		VIDEO_HEIGHT as _,
+		(VIDEO_WIDTH as usize * size_of::<u32>()) as _,
 	);
 }
 
@@ -225,7 +225,7 @@ pub unsafe extern "C" fn retro_load_game(_info: *const retro_game_info) -> bool 
 	*/
 	if !ENVIRON_CB(
 		RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
-		&RETRO_PIXEL_FORMAT_XRGB8888 as *const retro_pixel_format as *mut c_void,
+		&RETRO_PIXEL_FORMAT_XRGB8888 as *const _ as *mut _,
 	) {
 		log_cb!(RETRO_LOG_ERROR, "XRGB8888 is not supported.\n\0");
 		return false;
