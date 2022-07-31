@@ -1,34 +1,26 @@
-#![feature(c_variadic)]
 #![warn(elided_lifetimes_in_paths)]
 
 use {
 	core::{
-		ffi::{c_void, VaList},
+		ffi::c_void,
 		mem::size_of,
 		ptr::{copy, null, null_mut},
 	},
-	libc::FILE,
+	libc::{fprintf, FILE},
 	rust_libretro_sys::{
 		retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_geometry,
-		retro_game_info, retro_input_poll_t, retro_input_state_t, retro_log_callback,
-		retro_log_level::{self, RETRO_LOG_ERROR},
-		retro_pixel_format::RETRO_PIXEL_FORMAT_XRGB8888,
-		retro_system_av_info, retro_system_info, retro_system_timing, retro_video_refresh_t, size_t,
-		RETRO_API_VERSION, RETRO_ENVIRONMENT_GET_LOG_INTERFACE, RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
-		RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, RETRO_REGION_PAL,
+		retro_game_info, retro_input_poll_t, retro_input_state_t,
+		retro_pixel_format::RETRO_PIXEL_FORMAT_XRGB8888, retro_system_av_info, retro_system_info,
+		retro_system_timing, retro_video_refresh_t, size_t, RETRO_API_VERSION,
+		RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, RETRO_REGION_NTSC,
 	},
-	std::os::raw::{c_char, c_int, c_uint},
+	std::os::raw::{c_char, c_uint},
 };
 
 extern "C" {
 	static stderr: *mut FILE;
-	fn vfprintf(_: *mut FILE, _: *const c_char, _: VaList<'_, '_>) -> c_int;
 }
 
-#[allow(improper_ctypes_definitions)]
-unsafe extern "C" fn log_cb(_level: retro_log_level, fmt: *const c_char, mut args: ...) {
-	vfprintf(stderr, fmt, args.as_va_list());
-}
 unsafe extern "C" fn environ_cb(_: c_uint, _: *mut c_void) -> bool {
 	unimplemented!()
 }
@@ -48,7 +40,6 @@ unsafe extern "C" fn audio_batch_cb(_: *const i16, _: size_t) -> size_t {
 	unimplemented!()
 }
 
-static mut LOG_CB: unsafe extern "C" fn(retro_log_level, *const c_char, ...) = log_cb;
 static mut ENVIRON_CB: unsafe extern "C" fn(c_uint, *mut c_void) -> bool = environ_cb;
 static mut VIDEO_CB: unsafe extern "C" fn(*const c_void, c_uint, c_uint, size_t) = video_cb;
 static mut INPUT_POLL_CB: unsafe extern "C" fn() = input_poll_cb;
@@ -59,8 +50,8 @@ static mut AUDIO_BATCH_CB: unsafe extern "C" fn(*const i16, size_t) -> size_t = 
 
 macro_rules! log_cb {
 	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
-		LOG_CB(
-			$level,
+		fprintf(
+			stderr,
 			$fmt.as_ptr() as *const _,
 			$( $arg ),*
 		);
@@ -93,16 +84,8 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
 	const VER: &'static str = env!("CARGO_PKG_VERSION");
 	static mut CVER: [c_char; VER.len() + 1] = [0; VER.len() + 1];
 	if CNAME[0] == 0 {
-		copy(
-			NAME.as_ptr() as *const _,
-			&mut CNAME as *mut _ as *mut _,
-			NAME.len(),
-		);
-		copy(
-			VER.as_ptr() as *const _,
-			&mut CVER as *mut _ as *mut _,
-			VER.len(),
-		);
+		copy(NAME.as_ptr() as *const _, &mut CNAME as *mut _ as *mut _, NAME.len());
+		copy(VER.as_ptr() as *const _, &mut CVER as *mut _ as *mut _, VER.len());
 	}
 	*info = retro_system_info {
 		library_name: &CNAME as *const _,
@@ -116,10 +99,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
 #[no_mangle]
 pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_info) {
 	*info = retro_system_av_info {
-		timing: retro_system_timing {
-			fps: 1.0,
-			sample_rate: 0.0,
-		},
+		timing: retro_system_timing { fps: 1.0, sample_rate: 0.0 },
 		geometry: retro_game_geometry {
 			base_width: VIDEO_WIDTH,
 			base_height: VIDEO_HEIGHT,
@@ -133,17 +113,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB = cb.unwrap();
-	ENVIRON_CB(
-		RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME,
-		&true as *const _ as *mut _,
-	);
-	let mut logging = retro_log_callback { log: None };
-	if ENVIRON_CB(
-		RETRO_ENVIRONMENT_GET_LOG_INTERFACE,
-		&mut logging as *mut _ as *mut _,
-	) {
-		LOG_CB = logging.log.unwrap();
-	}
+	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &true as *const _ as *mut _);
 }
 
 #[no_mangle]
@@ -247,7 +217,7 @@ pub unsafe extern "C" fn retro_unload_game() {}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_get_region() -> c_uint {
-	RETRO_REGION_PAL
+	RETRO_REGION_NTSC
 }
 
 #[no_mangle]

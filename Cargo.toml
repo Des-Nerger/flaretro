@@ -1,6 +1,6 @@
 [package]
 name = "flaretro"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 
 [lib]
@@ -9,6 +9,3 @@ crate-type = ["cdylib"]
 [dependencies]
 libc = "0.2.119"
 rust-libretro-sys = "0.1.5"
-
-[profile.release]
-strip = true
