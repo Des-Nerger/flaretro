@@ -7,13 +7,7 @@ use {
 		ptr::{copy, null, null_mut},
 	},
 	libc::{fprintf, FILE},
-	rust_libretro_sys::{
-		retro_audio_sample_batch_t, retro_audio_sample_t, retro_environment_t, retro_game_geometry,
-		retro_game_info, retro_input_poll_t, retro_input_state_t,
-		retro_pixel_format::RETRO_PIXEL_FORMAT_XRGB8888, retro_system_av_info, retro_system_info,
-		retro_system_timing, retro_video_refresh_t, size_t, RETRO_API_VERSION,
-		RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, RETRO_REGION_NTSC,
-	},
+	rust_libretro_sys::{retro_log_level::*, retro_pixel_format::*, *},
 	std::os::raw::{c_char, c_uint},
 };
 
@@ -40,6 +34,7 @@ unsafe extern "C" fn audio_batch_cb(_: *const i16, _: size_t) -> size_t {
 	unimplemented!()
 }
 
+static mut LOG_CB: retro_log_printf_t = None;
 static mut ENVIRON_CB: unsafe extern "C" fn(c_uint, *mut c_void) -> bool = environ_cb;
 static mut VIDEO_CB: unsafe extern "C" fn(*const c_void, c_uint, c_uint, size_t) = video_cb;
 static mut INPUT_POLL_CB: unsafe extern "C" fn() = input_poll_cb;
@@ -50,16 +45,19 @@ static mut AUDIO_BATCH_CB: unsafe extern "C" fn(*const i16, size_t) -> size_t = 
 
 macro_rules! log_cb {
 	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
-		fprintf(
-			stderr,
-			$fmt.as_ptr() as *const _,
-			$( $arg ),*
-		);
+		{
+			const FMT_PTR: *const c_char = $fmt as *const _ as *const _;
+			if let Some(log_cb) = LOG_CB {
+				log_cb($level, FMT_PTR, $( $arg ),*);
+			} else {
+				fprintf(stderr, FMT_PTR, $( $arg ),*);
+			}
+		}
 	};
 }
 
-const VIDEO_WIDTH: u32 = 1280;
-const VIDEO_HEIGHT: u32 = 720;
+const VIDEO_WIDTH: u32 = 683;
+const VIDEO_HEIGHT: u32 = 383;
 static mut FRAME_BUF: Vec<u32> = Vec::new();
 
 #[no_mangle]
@@ -114,6 +112,12 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB = cb.unwrap();
 	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &true as *const _ as *mut _);
+	let mut logging = retro_log_callback { log: None };
+	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &mut logging as *mut _ as *mut _) {
+		Some(logging.log.unwrap())
+	} else {
+		None
+	};
 }
 
 #[no_mangle]
