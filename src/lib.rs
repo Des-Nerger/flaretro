@@ -97,7 +97,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
 #[no_mangle]
 pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_info) {
 	*info = retro_system_av_info {
-		timing: retro_system_timing { fps: 1.0, sample_rate: 0.0 },
+		timing: retro_system_timing { fps: 60.0, sample_rate: 0.0 },
 		geometry: retro_game_geometry {
 			base_width: VIDEO_WIDTH,
 			base_height: VIDEO_HEIGHT,
@@ -154,9 +154,9 @@ pub unsafe extern "C" fn retro_reset() {}
 #[no_mangle]
 pub unsafe extern "C" fn retro_run() {
 	INPUT_POLL_CB();
-	static mut ODD: bool = false;
-	FRAME_BUF.fill(if ODD { 0x55_55_55_55 } else { 0x99_99_99_99 });
-	ODD = !ODD;
+	static mut FRAME_COUNT: u8 = 0;
+	FRAME_BUF.fill(if FRAME_COUNT <= 127 { 0x55_55_55_55 } else { 0x99_99_99_99 });
+	FRAME_COUNT += 2;
 	VIDEO_CB(
 		FRAME_BUF.as_ptr() as *const _,
 		VIDEO_WIDTH as _,
