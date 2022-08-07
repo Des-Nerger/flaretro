@@ -1,18 +1,36 @@
-#![warn(elided_lifetimes_in_paths)]
+#![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
+
+mod glad;
 
 use {
 	core::{
 		ffi::c_void,
-		mem::size_of,
 		ptr::{copy, null, null_mut},
 	},
+	glad::gl::*,
 	libc::{fprintf, FILE},
-	rust_libretro_sys::{retro_log_level::*, retro_pixel_format::*, *},
+	rust_libretro_sys::{retro_hw_context_type::*, retro_log_level::*, retro_pixel_format::*, *},
 	std::os::raw::{c_char, c_uint},
 };
 
 extern "C" {
 	static stderr: *mut FILE;
+}
+
+#[repr(C)]
+struct RetroHwRenderCallback {
+	context_type: retro_hw_context_type,
+	context_reset: unsafe extern "C" fn(),
+	get_current_framebuffer: unsafe extern "C" fn() -> usize,
+	get_proc_address: unsafe extern "C" fn(sym: *const c_char) -> *const c_void,
+	depth: bool,
+	stencil: bool,
+	bottom_left_origin: bool,
+	version_major: c_uint,
+	version_minor: c_uint,
+	cache_context: bool,
+	context_destroy: unsafe extern "C" fn(),
+	debug_context: bool,
 }
 
 unsafe extern "C" fn environ_cb(_: c_uint, _: *mut c_void) -> bool {
@@ -33,6 +51,12 @@ unsafe extern "C" fn audio_cb(_: i16, _: i16) {
 unsafe extern "C" fn audio_batch_cb(_: *const i16, _: size_t) -> size_t {
 	unimplemented!()
 }
+unsafe extern "C" fn get_current_framebuffer() -> usize {
+	unimplemented!()
+}
+unsafe extern "C" fn get_proc_address(_: *const c_char) -> *const c_void {
+	unimplemented!()
+}
 
 static mut LOG_CB: retro_log_printf_t = None;
 static mut ENVIRON_CB: unsafe extern "C" fn(c_uint, *mut c_void) -> bool = environ_cb;
@@ -42,11 +66,31 @@ static mut INPUT_STATE_CB: unsafe extern "C" fn(c_uint, c_uint, c_uint, c_uint) 
 	input_state_cb;
 static mut AUDIO_CB: unsafe extern "C" fn(i16, i16) = audio_cb;
 static mut AUDIO_BATCH_CB: unsafe extern "C" fn(*const i16, size_t) -> size_t = audio_batch_cb;
+static mut HW_RENDER: RetroHwRenderCallback = RetroHwRenderCallback {
+	context_type: RETRO_HW_CONTEXT_OPENGL,
+	version_major: 2,
+	version_minor: 1,
+	depth: false,
+	stencil: false,
+	bottom_left_origin: true,
+	cache_context: false,
+	debug_context: false,
+	get_current_framebuffer,
+	get_proc_address,
+	context_reset,
+	context_destroy,
+};
+
+macro_rules! ptr {
+	($e: expr) => {
+		$e as *const _ as *const _
+	};
+}
 
 macro_rules! log_cb {
 	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
 		{
-			const FMT_PTR: *const c_char = $fmt as *const _ as *const _;
+			const FMT_PTR: *const c_char = ptr!($fmt);
 			if let Some(log_cb) = LOG_CB {
 				log_cb($level, FMT_PTR, $( $arg ),*);
 			} else {
@@ -58,17 +102,17 @@ macro_rules! log_cb {
 
 const VIDEO_WIDTH: u32 = 683;
 const VIDEO_HEIGHT: u32 = 383;
-static mut FRAME_BUF: Vec<u32> = Vec::new();
+
+unsafe extern "C" fn context_reset() {
+	gl_load(|e| (HW_RENDER.get_proc_address)(ptr!(e)));
+}
+unsafe extern "C" fn context_destroy() {}
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_init() {
-	FRAME_BUF.resize((VIDEO_WIDTH * VIDEO_HEIGHT) as _, 0);
-}
+pub unsafe extern "C" fn retro_init() {}
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_deinit() {
-	FRAME_BUF.shrink_to(0);
-}
+pub unsafe extern "C" fn retro_deinit() {}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_api_version() -> c_uint {
@@ -114,7 +158,7 @@ pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &true as *const _ as *mut _);
 	let mut logging = retro_log_callback { log: None };
 	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &mut logging as *mut _ as *mut _) {
-		Some(logging.log.unwrap())
+		logging.log
 	} else {
 		None
 	};
@@ -154,15 +198,15 @@ pub unsafe extern "C" fn retro_reset() {}
 #[no_mangle]
 pub unsafe extern "C" fn retro_run() {
 	INPUT_POLL_CB();
+	glBindFramebuffer(GL_FRAMEBUFFER, (HW_RENDER.get_current_framebuffer)() as _);
 	static mut FRAME_COUNT: u8 = 0;
-	FRAME_BUF.fill(if FRAME_COUNT <= 127 { 0x55_55_55_55 } else { 0x99_99_99_99 });
+	let f: f32 = if FRAME_COUNT <= 127 { 0.33 } else { 0.67 };
 	FRAME_COUNT += 2;
-	VIDEO_CB(
-		FRAME_BUF.as_ptr() as *const _,
-		VIDEO_WIDTH as _,
-		VIDEO_HEIGHT as _,
-		(VIDEO_WIDTH as usize * size_of::<u32>()) as _,
-	);
+	glClearColor(f, f, f, f);
+	glViewport(0, 0, VIDEO_WIDTH as _, VIDEO_HEIGHT as _);
+	glClear(GL_COLOR_BUFFER_BIT);
+	const IRRELEVANT: size_t = size_t::MAX;
+	VIDEO_CB(RETRO_HW_FRAME_BUFFER_VALID, VIDEO_WIDTH as _, VIDEO_HEIGHT as _, IRRELEVANT);
 }
 
 #[no_mangle]
@@ -202,6 +246,10 @@ pub unsafe extern "C" fn retro_load_game(_info: *const retro_game_info) -> bool 
 		&RETRO_PIXEL_FORMAT_XRGB8888 as *const _ as *mut _,
 	) {
 		log_cb!(RETRO_LOG_ERROR, "XRGB8888 is not supported.\n\0");
+		return false;
+	}
+	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_HW_RENDER, &mut HW_RENDER as *mut _ as *mut _) {
+		log_cb!(RETRO_LOG_ERROR, "HW Context could not be initialized.\n\0");
 		return false;
 	}
 	true
