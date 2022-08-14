@@ -1,16 +1,30 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
+#![allow(non_snake_case)]
 
 mod glad;
 
 use {
+	const_format::concatcp,
 	core::{
 		ffi::c_void,
-		ptr::{copy, null, null_mut},
+		ptr::{null, null_mut},
 	},
 	glad::gl::*,
 	libc::{fprintf, FILE},
-	rust_libretro_sys::{retro_hw_context_type::*, retro_log_level::*, retro_pixel_format::*, *},
-	std::os::raw::{c_char, c_uint},
+	rust_libretro_sys::{
+		retro_hw_context_type::*,
+		retro_log_level::{RETRO_LOG_ERROR as ERR, RETRO_LOG_INFO as INFO},
+		retro_pixel_format::*,
+		*,
+	},
+	std::{
+		env::{current_dir, set_current_dir},
+		ffi::CStr,
+		fs::File,
+		io::Read,
+		os::raw::{c_char, c_uint},
+		path::{Path, PathBuf},
+	},
 };
 
 extern "C" {
@@ -34,28 +48,28 @@ struct RetroHwRenderCallback {
 }
 
 unsafe extern "C" fn environ_cb(_: c_uint, _: *mut c_void) -> bool {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn video_cb(_: *const c_void, _: c_uint, _: c_uint, _: size_t) {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn input_poll_cb() {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn input_state_cb(_: c_uint, _: c_uint, _: c_uint, _: c_uint) -> i16 {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn audio_cb(_: i16, _: i16) {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn audio_batch_cb(_: *const i16, _: size_t) -> size_t {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn get_current_framebuffer() -> usize {
-	unimplemented!()
+	unreachable!()
 }
 unsafe extern "C" fn get_proc_address(_: *const c_char) -> *const c_void {
-	unimplemented!()
+	unreachable!()
 }
 
 static mut LOG_CB: retro_log_printf_t = None;
@@ -80,6 +94,7 @@ static mut HW_RENDER: RetroHwRenderCallback = RetroHwRenderCallback {
 	context_reset,
 	context_destroy,
 };
+static mut PREV_CUR_DIR: Option<PathBuf> = None;
 
 macro_rules! ptr {
 	($e: expr) => {
@@ -87,12 +102,41 @@ macro_rules! ptr {
 	};
 }
 
-macro_rules! log_cb {
+macro_rules! mut_ptr {
+	($e: expr) => {
+		$e as *mut _ as *mut _
+	};
+}
+
+macro_rules! mut_const_ptr {
+	($e: expr) => {
+		$e as *const _ as *mut _
+	};
+}
+
+macro_rules! cstr {
+	($e: expr) => {
+		ptr!(concatcp!($e, "\0"))
+	};
+}
+
+macro_rules! log {
+	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
+		if let Some(logCb) = LOG_CB {
+			let fmt: &str = &format!("{}\0", format_args!($fmt, $( $arg ),*));
+			logCb($level, ptr!(fmt), $( $arg ),*);
+		} else {
+			eprint!($fmt, $( $arg ),*);
+		}
+	};
+}
+
+macro_rules! logf {
 	( $level:expr, $fmt:expr $(, $arg:expr)* $(,)? ) => {
 		{
-			const FMT_PTR: *const c_char = ptr!($fmt);
-			if let Some(log_cb) = LOG_CB {
-				log_cb($level, FMT_PTR, $( $arg ),*);
+			const FMT_PTR: *const c_char = cstr!($fmt);
+			if let Some(logCb) = LOG_CB {
+				logCb($level, FMT_PTR, $( $arg ),*);
 			} else {
 				fprintf(stderr, FMT_PTR, $( $arg ),*);
 			}
@@ -100,11 +144,29 @@ macro_rules! log_cb {
 	};
 }
 
-const VIDEO_WIDTH: u32 = 683;
-const VIDEO_HEIGHT: u32 = 383;
+const VIDEO_WIDTH: u32 = 664;
+const VIDEO_HEIGHT: u32 = 360;
 
 unsafe extern "C" fn context_reset() {
-	gl_load(|e| (HW_RENDER.get_proc_address)(ptr!(e)));
+	gl_load(|s| (HW_RENDER.get_proc_address)(ptr!(s)));
+	const PREFIX: &str = "shaders/test_not_srgb.glsl";
+	for path in [concatcp!(PREFIX, "v"), concatcp!(PREFIX, "f")] {
+		let src = &mut Vec::new();
+		{
+			let mut file = File::open(path).unwrap_or_else(|err| panic!("{path:?}: {err}"));
+			file.read_to_end(src).unwrap();
+		}
+		match src.len() - 1 {
+			usize::MAX => {}
+			lastIdx => {
+				if src[lastIdx] == b'\n' {
+					src.truncate(lastIdx);
+				}
+			}
+		}
+		src.push(b'\0');
+		logf!(INFO, "%c = ```\n%s\n```\n", path.as_bytes()[path.len() - 1] as c_uint, src.as_ptr());
+	}
 }
 unsafe extern "C" fn context_destroy() {}
 
@@ -121,19 +183,11 @@ pub unsafe extern "C" fn retro_api_version() -> c_uint {
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
-	const NAME: &'static str = env!("CARGO_PKG_NAME");
-	static mut CNAME: [c_char; NAME.len() + 1] = [0; NAME.len() + 1];
-	const VER: &'static str = env!("CARGO_PKG_VERSION");
-	static mut CVER: [c_char; VER.len() + 1] = [0; VER.len() + 1];
-	if CNAME[0] == 0 {
-		copy(NAME.as_ptr() as *const _, &mut CNAME as *mut _ as *mut _, NAME.len());
-		copy(VER.as_ptr() as *const _, &mut CVER as *mut _ as *mut _, VER.len());
-	}
 	*info = retro_system_info {
-		library_name: &CNAME as *const _,
-		library_version: &CVER as *const _,
+		library_name: cstr!(env!("CARGO_PKG_NAME")),
+		library_version: cstr!(env!("CARGO_PKG_VERSION")),
 		valid_extensions: null(),
-		need_fullpath: false,
+		need_fullpath: true,
 		block_extract: true,
 	};
 }
@@ -155,9 +209,9 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB = cb.unwrap();
-	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &true as *const _ as *mut _);
+	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, mut_const_ptr!(&true));
 	let mut logging = retro_log_callback { log: None };
-	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &mut logging as *mut _ as *mut _) {
+	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, mut_ptr!(&mut logging)) {
 		logging.log
 	} else {
 		None
@@ -231,25 +285,18 @@ pub unsafe extern "C" fn retro_cheat_reset() {}
 pub unsafe extern "C" fn retro_cheat_set(_index: c_uint, _enabled: bool, _code: *const c_char) {}
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_load_game(_info: *const retro_game_info) -> bool {
-	/*
-		if info != null() {
-			log_cb!(
-				RETRO_LOG_ERROR,
-				"Content file is given, but this core doesn't support any !!!\n\0",
-			);
-			return false;
-		}
-	*/
-	if !ENVIRON_CB(
-		RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
-		&RETRO_PIXEL_FORMAT_XRGB8888 as *const _ as *mut _,
-	) {
-		log_cb!(RETRO_LOG_ERROR, "XRGB8888 is not supported.\n\0");
+pub unsafe extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
+	if let Some(&retro_game_info { path, .. }) = info.as_ref() {
+		logf!(INFO, "Changing working directory to \"%s\".\n", path);
+		PREV_CUR_DIR = Some(current_dir().unwrap());
+		set_current_dir(Path::new(CStr::from_ptr(path).to_str().unwrap())).unwrap();
+	}
+	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, mut_const_ptr!(&RETRO_PIXEL_FORMAT_XRGB8888)) {
+		logf!(ERR, "XRGB8888 is not supported.\n");
 		return false;
 	}
-	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_HW_RENDER, &mut HW_RENDER as *mut _ as *mut _) {
-		log_cb!(RETRO_LOG_ERROR, "HW Context could not be initialized.\n\0");
+	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_HW_RENDER, mut_ptr!(&mut HW_RENDER)) {
+		logf!(ERR, "HW Context could not be initialized.\n");
 		return false;
 	}
 	true
@@ -265,7 +312,13 @@ pub unsafe extern "C" fn retro_load_game_special(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_unload_game() {}
+pub unsafe extern "C" fn retro_unload_game() {
+	if let Some(prevCurDir) = &PREV_CUR_DIR {
+		log!(INFO, "Changing working directory back to {prevCurDir:?}.\n");
+		set_current_dir(prevCurDir).unwrap();
+		PREV_CUR_DIR = None;
+	}
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_get_region() -> c_uint {
