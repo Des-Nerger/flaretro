@@ -439,12 +439,12 @@ pub mod functions {
 	use std::os::raw::*;
 
 	macro_rules! func {
-        ($fun:ident, $ret:ty, $($name:ident: $typ:ty),*) => {
-            #[inline] pub unsafe fn $fun($($name: $typ),*) -> $ret {
-                transmute::<_, extern "system" fn($($typ),*) -> $ret>(storage::$fun.ptr)($($name),*)
-            }
-        }
-    }
+		($fun:ident, $ret:ty, $($name:ident: $typ:ty),*) => {
+			#[inline] pub unsafe fn $fun($($name: $typ),*) -> $ret {
+				transmute::<_, extern "system" fn($($typ),*) -> $ret>(storage::$fun.ptr)($($name),*)
+			}
+		}
+	}
 
 	func!(glActiveTexture, (), texture: GLenum);
 	func!(glAttachShader, (), program: GLuint, shader: GLuint);
@@ -466,14 +466,7 @@ pub mod functions {
 		dfactorAlpha: GLenum
 	);
 	func!(glBufferData, (), target: GLenum, size: GLsizeiptr, data: *const c_void, usage: GLenum);
-	func!(
-		glBufferSubData,
-		(),
-		target: GLenum,
-		offset: GLintptr,
-		size: GLsizeiptr,
-		data: *const c_void
-	);
+	func!(glBufferSubData, (), target: GLenum, offset: GLintptr, size: GLsizeiptr, data: *const c_void);
 	func!(glCheckFramebufferStatus, GLenum, target: GLenum);
 	func!(glClear, (), mask: GLbitfield);
 	func!(glClearColor, (), red: GLfloat, green: GLfloat, blue: GLfloat, alpha: GLfloat);

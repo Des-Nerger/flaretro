@@ -76,8 +76,7 @@ static mut LOG_CB: retro_log_printf_t = None;
 static mut ENVIRON_CB: unsafe extern "C" fn(c_uint, *mut c_void) -> bool = environ_cb;
 static mut VIDEO_CB: unsafe extern "C" fn(*const c_void, c_uint, c_uint, size_t) = video_cb;
 static mut INPUT_POLL_CB: unsafe extern "C" fn() = input_poll_cb;
-static mut INPUT_STATE_CB: unsafe extern "C" fn(c_uint, c_uint, c_uint, c_uint) -> i16 =
-	input_state_cb;
+static mut INPUT_STATE_CB: unsafe extern "C" fn(c_uint, c_uint, c_uint, c_uint) -> i16 = input_state_cb;
 static mut AUDIO_CB: unsafe extern "C" fn(i16, i16) = audio_cb;
 static mut AUDIO_BATCH_CB: unsafe extern "C" fn(*const i16, size_t) -> size_t = audio_batch_cb;
 static mut HW_RENDER: RetroHwRenderCallback = RetroHwRenderCallback {
@@ -95,6 +94,8 @@ static mut HW_RENDER: RetroHwRenderCallback = RetroHwRenderCallback {
 	context_destroy,
 };
 static mut PREV_CUR_DIR: Option<PathBuf> = None;
+static mut SHAD_PROG: GLuint = 0;
+static mut ATTR_COORD2D: GLuint = GLuint::MAX;
 
 macro_rules! ptr {
 	($e: expr) => {
@@ -103,12 +104,6 @@ macro_rules! ptr {
 }
 
 macro_rules! mut_ptr {
-	($e: expr) => {
-		$e as *mut _ as *mut _
-	};
-}
-
-macro_rules! mut_const_ptr {
 	($e: expr) => {
 		$e as *const _ as *mut _
 	};
@@ -149,26 +144,52 @@ const VIDEO_HEIGHT: u32 = 360;
 
 unsafe extern "C" fn context_reset() {
 	gl_load(|s| (HW_RENDER.get_proc_address)(ptr!(s)));
-	const PREFIX: &str = "shaders/test_not_srgb.glsl";
-	for path in [concatcp!(PREFIX, "v"), concatcp!(PREFIX, "f")] {
+	SHAD_PROG = glCreateProgram();
+	const PREFIX: &str = "shaders/_.glsl";
+	{
 		let src = &mut Vec::new();
-		{
-			let mut file = File::open(path).unwrap_or_else(|err| panic!("{path:?}: {err}"));
-			file.read_to_end(src).unwrap();
-		}
-		match src.len() - 1 {
-			usize::MAX => {}
-			lastIdx => {
-				if src[lastIdx] == b'\n' {
-					src.truncate(lastIdx);
+		for path in [concatcp!(PREFIX, "f"), concatcp!(PREFIX, "v")] {
+			src.clear();
+			{
+				let mut file = File::open(path).unwrap_or_else(|err| panic!("{path:?}: {err}"));
+				file.read_to_end(src).unwrap();
+			}
+			match src.len() - 1 {
+				usize::MAX => {}
+				lastIdx => {
+					if src[lastIdx] == b'\n' {
+						src.truncate(lastIdx);
+					}
 				}
 			}
+			src.push(b'\0');
+			let (pathLastByte, srcPtr) = (path.as_bytes()[path.len() - 1], src.as_ptr());
+			logf!(INFO, "%c = ```\n%s\n```\n", pathLastByte as c_uint, srcPtr);
+			let sh = glCreateShader(if pathLastByte == b'v' { GL_VERTEX_SHADER } else { GL_FRAGMENT_SHADER });
+			glShaderSource(sh, 1, ptr!(&srcPtr), null());
+			glCompileShader(sh);
+			let compileOk = false;
+			glGetShaderiv(sh, GL_COMPILE_STATUS, mut_ptr!(&compileOk));
+			if !compileOk {
+				panic!("Error in {} shader", char::from(pathLastByte));
+			}
+			glAttachShader(SHAD_PROG, sh);
 		}
-		src.push(b'\0');
-		logf!(INFO, "%c = ```\n%s\n```\n", path.as_bytes()[path.len() - 1] as c_uint, src.as_ptr());
 	}
+	glLinkProgram(SHAD_PROG);
+	let linkOk = false;
+	glGetProgramiv(SHAD_PROG, GL_LINK_STATUS, mut_ptr!(&linkOk));
+	if !linkOk {
+		panic!("Error in glLinkProgram");
+	}
+	const ATTR_NAME: &str = "coord2d";
+	ATTR_COORD2D = glGetAttribLocation(SHAD_PROG, cstr!(ATTR_NAME))
+		.try_into()
+		.unwrap_or_else(|err| panic!("Could not bind attribute {ATTR_NAME:?}: {err}"));
 }
-unsafe extern "C" fn context_destroy() {}
+unsafe extern "C" fn context_destroy() {
+	glDeleteProgram(SHAD_PROG);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_init() {}
@@ -209,7 +230,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 #[no_mangle]
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB = cb.unwrap();
-	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, mut_const_ptr!(&true));
+	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, mut_ptr!(&true));
 	let mut logging = retro_log_callback { log: None };
 	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, mut_ptr!(&mut logging)) {
 		logging.log
@@ -259,6 +280,12 @@ pub unsafe extern "C" fn retro_run() {
 	glClearColor(f, f, f, f);
 	glViewport(0, 0, VIDEO_WIDTH as _, VIDEO_HEIGHT as _);
 	glClear(GL_COLOR_BUFFER_BIT);
+	glUseProgram(SHAD_PROG);
+	glEnableVertexAttribArray(ATTR_COORD2D);
+	static TRIANGLE_VERTICES: &[f32] = &[0.0, 0.8, -0.8, -0.8, 0.8, -0.8];
+	glVertexAttribPointer(ATTR_COORD2D, 2, GL_FLOAT, GL_FALSE, 0, ptr!(TRIANGLE_VERTICES));
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glDisableVertexAttribArray(ATTR_COORD2D);
 	const IRRELEVANT: size_t = size_t::MAX;
 	VIDEO_CB(RETRO_HW_FRAME_BUFFER_VALID, VIDEO_WIDTH as _, VIDEO_HEIGHT as _, IRRELEVANT);
 }
@@ -291,7 +318,7 @@ pub unsafe extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
 		PREV_CUR_DIR = Some(current_dir().unwrap());
 		set_current_dir(Path::new(CStr::from_ptr(path).to_str().unwrap())).unwrap();
 	}
-	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, mut_const_ptr!(&RETRO_PIXEL_FORMAT_XRGB8888)) {
+	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, mut_ptr!(&RETRO_PIXEL_FORMAT_XRGB8888)) {
 		logf!(ERR, "XRGB8888 is not supported.\n");
 		return false;
 	}
