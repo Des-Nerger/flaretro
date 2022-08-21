@@ -145,11 +145,29 @@ const VIDEO_HEIGHT: u32 = 360;
 unsafe extern "C" fn context_reset() {
 	gl_load(|s| (HW_RENDER.get_proc_address)(ptr!(s)));
 	SHAD_PROG = glCreateProgram();
-	const PREFIX: &str = "shaders/_.glsl";
+
+	unsafe fn gl_err(obj: GLuint) -> String {
+		let logLen: GLint = 0;
+		let getInfoLog = if glIsShader(obj) == GL_TRUE {
+			glGetShaderiv(obj, GL_INFO_LOG_LENGTH, mut_ptr!(&logLen));
+			glGetShaderInfoLog
+		} else if glIsProgram(obj) == GL_TRUE {
+			glGetProgramiv(obj, GL_INFO_LOG_LENGTH, mut_ptr!(&logLen));
+			glGetProgramInfoLog
+		} else {
+			return String::from("not a shader or a program");
+		};
+		let mut log = Vec::with_capacity(logLen as _);
+		getInfoLog(obj, logLen, null_mut(), log.as_mut_ptr() as _);
+		log.set_len((logLen - 1) as _);
+		String::from_utf8_unchecked(log)
+	}
+	const VER_LINE: &[u8] = b"#version 120\n";
+	const PREFIX: &str = "_.glsl";
 	{
-		let src = &mut Vec::new();
+		let src = &mut Vec::from(VER_LINE);
 		for path in [concatcp!(PREFIX, "f"), concatcp!(PREFIX, "v")] {
-			src.clear();
+			src.truncate(VER_LINE.len());
 			{
 				let mut file = File::open(path).unwrap_or_else(|err| panic!("{path:?}: {err}"));
 				file.read_to_end(src).unwrap();
@@ -171,7 +189,7 @@ unsafe extern "C" fn context_reset() {
 			let compileOk = false;
 			glGetShaderiv(sh, GL_COMPILE_STATUS, mut_ptr!(&compileOk));
 			if !compileOk {
-				panic!("Error in {} shader", char::from(pathLastByte));
+				panic!("error in {} shader: {}", char::from(pathLastByte), gl_err(sh));
 			}
 			glAttachShader(SHAD_PROG, sh);
 		}
@@ -180,12 +198,12 @@ unsafe extern "C" fn context_reset() {
 	let linkOk = false;
 	glGetProgramiv(SHAD_PROG, GL_LINK_STATUS, mut_ptr!(&linkOk));
 	if !linkOk {
-		panic!("Error in glLinkProgram");
+		panic!("error in glLinkProgram: {}", gl_err(SHAD_PROG));
 	}
 	const ATTR_NAME: &str = "coord2d";
 	ATTR_COORD2D = glGetAttribLocation(SHAD_PROG, cstr!(ATTR_NAME))
 		.try_into()
-		.unwrap_or_else(|err| panic!("Could not bind attribute {ATTR_NAME:?}: {err}"));
+		.unwrap_or_else(|err| panic!("could not bind attribute {ATTR_NAME:?}: {err}"));
 }
 unsafe extern "C" fn context_destroy() {
 	glDeleteProgram(SHAD_PROG);
@@ -282,7 +300,7 @@ pub unsafe extern "C" fn retro_run() {
 	glClear(GL_COLOR_BUFFER_BIT);
 	glUseProgram(SHAD_PROG);
 	glEnableVertexAttribArray(ATTR_COORD2D);
-	static TRIANGLE_VERTICES: &[f32] = &[0.0, 0.8, -0.8, -0.8, 0.8, -0.8];
+	static TRIANGLE_VERTICES: &[f32] = &[0.0, 1.0, -1.0, -1.0, 1.0, -1.0];
 	glVertexAttribPointer(ATTR_COORD2D, 2, GL_FLOAT, GL_FALSE, 0, ptr!(TRIANGLE_VERTICES));
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 	glDisableVertexAttribArray(ATTR_COORD2D);
