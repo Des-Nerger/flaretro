@@ -7,6 +7,7 @@ use {
 	const_format::concatcp,
 	core::{
 		ffi::c_void,
+		mem::size_of_val,
 		ptr::{null, null_mut},
 	},
 	glad::gl::*,
@@ -94,8 +95,10 @@ static mut HW_RENDER: RetroHwRenderCallback = RetroHwRenderCallback {
 	context_destroy,
 };
 static mut PREV_CUR_DIR: Option<PathBuf> = None;
-static mut SHAD_PROG: GLuint = 0;
-static mut ATTR_COORD2D: GLuint = GLuint::MAX;
+const INVALID_OBJ: GLuint = GLuint::MAX;
+static mut SHAD_PROG: GLuint = INVALID_OBJ;
+static mut ATTR_COORD2D: GLuint = INVALID_OBJ;
+static mut VBO_TRIANGLE: GLuint = INVALID_OBJ;
 
 macro_rules! ptr {
 	($e: expr) => {
@@ -144,19 +147,29 @@ const VIDEO_HEIGHT: u32 = 360;
 
 unsafe extern "C" fn context_reset() {
 	gl_load(|s| (HW_RENDER.get_proc_address)(ptr!(s)));
+	static TRIANGLE_VERTICES: &[f32] = &[0.0, 1.0, -1.0, -1.0, 1.0, -1.0];
+	glGenBuffers(1, &mut VBO_TRIANGLE);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO_TRIANGLE);
+	glBufferData(
+		GL_ARRAY_BUFFER,
+		size_of_val(TRIANGLE_VERTICES) as _,
+		ptr!(TRIANGLE_VERTICES),
+		GL_STATIC_DRAW,
+	);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	SHAD_PROG = glCreateProgram();
 
 	unsafe fn gl_err(obj: GLuint) -> String {
-		let logLen: GLint = 0;
-		let getInfoLog = if glIsShader(obj) == GL_TRUE {
-			glGetShaderiv(obj, GL_INFO_LOG_LENGTH, mut_ptr!(&logLen));
-			glGetShaderInfoLog
+		let (getiv, getInfoLog): (unsafe fn(_, _, _), unsafe fn(_, _, _, _)) = if glIsShader(obj) == GL_TRUE
+		{
+			(glGetShaderiv, glGetShaderInfoLog)
 		} else if glIsProgram(obj) == GL_TRUE {
-			glGetProgramiv(obj, GL_INFO_LOG_LENGTH, mut_ptr!(&logLen));
-			glGetProgramInfoLog
+			(glGetProgramiv, glGetProgramInfoLog)
 		} else {
 			return String::from("not a shader or a program");
 		};
+		let mut logLen: GLint = 0;
+		getiv(obj, GL_INFO_LOG_LENGTH, &mut logLen);
 		let mut log = Vec::with_capacity(logLen as _);
 		getInfoLog(obj, logLen, null_mut(), log.as_mut_ptr() as _);
 		log.set_len((logLen - 1) as _);
@@ -205,8 +218,10 @@ unsafe extern "C" fn context_reset() {
 		.try_into()
 		.unwrap_or_else(|err| panic!("could not bind attribute {ATTR_NAME:?}: {err}"));
 }
+
 unsafe extern "C" fn context_destroy() {
 	glDeleteProgram(SHAD_PROG);
+	glDeleteBuffers(1, &VBO_TRIANGLE);
 }
 
 #[no_mangle]
@@ -249,8 +264,8 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_inf
 pub unsafe extern "C" fn retro_set_environment(cb: retro_environment_t) {
 	ENVIRON_CB = cb.unwrap();
 	ENVIRON_CB(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, mut_ptr!(&true));
-	let mut logging = retro_log_callback { log: None };
-	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, mut_ptr!(&mut logging)) {
+	let logging = retro_log_callback { log: None };
+	LOG_CB = if ENVIRON_CB(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, mut_ptr!(&logging)) {
 		logging.log
 	} else {
 		None
@@ -300,10 +315,12 @@ pub unsafe extern "C" fn retro_run() {
 	glClear(GL_COLOR_BUFFER_BIT);
 	glUseProgram(SHAD_PROG);
 	glEnableVertexAttribArray(ATTR_COORD2D);
-	static TRIANGLE_VERTICES: &[f32] = &[0.0, 1.0, -1.0, -1.0, 1.0, -1.0];
-	glVertexAttribPointer(ATTR_COORD2D, 2, GL_FLOAT, GL_FALSE, 0, ptr!(TRIANGLE_VERTICES));
+	glBindBuffer(GL_ARRAY_BUFFER, VBO_TRIANGLE);
+	glVertexAttribPointer(ATTR_COORD2D, 2, GL_FLOAT, GL_FALSE, 0, null());
 	glDrawArrays(GL_TRIANGLES, 0, 3);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glDisableVertexAttribArray(ATTR_COORD2D);
+	glUseProgram(0);
 	const IRRELEVANT: size_t = size_t::MAX;
 	VIDEO_CB(RETRO_HW_FRAME_BUFFER_VALID, VIDEO_WIDTH as _, VIDEO_HEIGHT as _, IRRELEVANT);
 }
@@ -334,13 +351,14 @@ pub unsafe extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
 	if let Some(&retro_game_info { path, .. }) = info.as_ref() {
 		logf!(INFO, "Changing working directory to \"%s\".\n", path);
 		PREV_CUR_DIR = Some(current_dir().unwrap());
-		set_current_dir(Path::new(CStr::from_ptr(path).to_str().unwrap())).unwrap();
+		let path = Path::new(CStr::from_ptr(path).to_str().unwrap());
+		set_current_dir(path).unwrap_or_else(|err| panic!("{path:?}: {err}"));
 	}
 	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, mut_ptr!(&RETRO_PIXEL_FORMAT_XRGB8888)) {
 		logf!(ERR, "XRGB8888 is not supported.\n");
 		return false;
 	}
-	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_HW_RENDER, mut_ptr!(&mut HW_RENDER)) {
+	if !ENVIRON_CB(RETRO_ENVIRONMENT_SET_HW_RENDER, mut_ptr!(&HW_RENDER)) {
 		logf!(ERR, "HW Context could not be initialized.\n");
 		return false;
 	}
