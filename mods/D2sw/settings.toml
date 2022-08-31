@@ -1,0 +1,3 @@
+description = "Diablo II Shareware v 1.04 maps, their tiles and maybe quests ontop of flare-game"
+requires = {fantasycore = ">= 1.06.03"}
+game = "flaretriiablo"
