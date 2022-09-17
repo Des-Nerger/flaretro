@@ -1,6 +1,6 @@
 [package]
 name = "flaretro"
-version = "0.1.15"
+version = "0.1.16"
 license = "LGPL-3.0"
 edition = "2021"
 
@@ -11,4 +11,6 @@ crate-type = ["cdylib"]
 libc = "0.2"
 rust-libretro-sys = "0.1"
 const_format = "0.2"
-glam = { version = "0.21", features = ["bytemuck"] }
+# glam = { version = "0.21", features = ["bytemuck"] }
+# toml = "0.5"
+# toml_edit = { version = "0.14", features = ["serde", "easy", "perf"] }

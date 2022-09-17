@@ -10,5 +10,5 @@ heroPos = [-1, -1]
 type = "Event"
 location = [-1, -1, {w = -1, h = -1}]
 activate = "OnLoad"
-intermap = ["maps/act1/RogueEncampment.toml", -1, -1, {seamless = false}]
+intermap = ["maps/Act1/RogueEncampment.toml", -1, -1, {seamless = false}]
 

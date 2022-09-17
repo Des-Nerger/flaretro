@@ -178,7 +178,7 @@ unsafe extern "C" fn context_reset() {
 		String::from_utf8_unchecked(log)
 	}
 	const VER_LINE: &[u8] = b"#version 120\n";
-	const PREFIX: &str = "default/shaders/_.glsl";
+	const PREFIX: &str = "Default/shaders/_.glsl";
 	{
 		let src = &mut Vec::from(VER_LINE);
 		for path in [concatcp!(PREFIX, "f"), concatcp!(PREFIX, "v")] {
@@ -346,7 +346,7 @@ pub unsafe extern "C" fn retro_cheat_set(_index: c_uint, _enabled: bool, _code: 
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
-	dt1::load("D2sw/MpqsData/global/tiles/ACT1/Town/Floor.dt1");
+	dt1::load("D2sw/mpqs_data/global/tiles/ACT1/Town/Floor.dt1");
 	match info.as_ref() {
 		Some(&retro_game_info { path, .. }) if path != null() => {
 			logf!(

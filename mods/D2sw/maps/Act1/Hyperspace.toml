@@ -10,7 +10,7 @@ type = "Event"
 location = [-1, -1, {w = -1, h = -1}]
 activate = "OnTrigger"
 hotspot = "Location"
-intermap = ["maps/act1/RogueEncampment.toml", -1, -1]
+intermap = ["maps/Act1/RogueEncampment.toml", -1, -1]
 soundfx = ["soundfx/environment/teleporter.ogg", {x = -1, y = -1, loop = false}]
 tooltip = "Rogue Encampment"
 
@@ -19,7 +19,7 @@ type = "Event"
 location = [-1, -1, {w = -1, h = -1}]
 activate = "OnTrigger"
 hotspot = "Location"
-intermap = ["maps/act1/ColdPlains.toml", -1, -1]
+intermap = ["maps/Act1/ColdPlains.toml", -1, -1]
 requiresStatus = "D2swWaypointColdPlains"
 soundfx = ["soundfx/environment/teleporter.ogg", {x = -1, y = -1, loop = false}]
 tooltip = "Cold Plains"
