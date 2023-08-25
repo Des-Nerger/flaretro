@@ -1,20 +1,18 @@
 #![warn(clippy::pedantic, elided_lifetimes_in_paths, explicit_outlives_requirements)]
-#![allow(non_snake_case)]
-
-macro_rules! mods {
-	($( $i:ident ),+) => {
-		$(
-			mod $i;
-		)+
-	};
-}
-mods!(glad);
+#![allow(
+	confusable_idents,
+	mixed_script_confusables,
+	non_camel_case_types,
+	non_snake_case,
+	uncommon_codepoints
+)]
 
 use {
 	const_format::concatcp,
 	core::{
 		ffi::c_void,
 		mem::size_of_val,
+		num::Wrapping,
 		ptr::{null, null_mut},
 	},
 	glad::gl::*,
@@ -128,14 +126,19 @@ macro_rules! logf {
 
 const CARGO_PKG_NAME: &str = env!("CARGO_PKG_NAME");
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
-const VIDEO_WIDTH: u32 = 640;
-const VIDEO_HEIGHT: u32 = 480;
-const FPS: usize = 25;
+const VIDEO_WIDTH: u32 = 624;
+const VIDEO_HEIGHT: u32 = 336;
+const FPS: usize = 50;
 const SAMPLE_RATE: usize = 22050;
 const_assert!(SAMPLE_RATE % FPS == 0);
 
 unsafe extern "C" fn context_reset() {
-	gl_load(|s| (HW_RENDER.get_proc_address.unwrap_unchecked())(ptr!(s)).unwrap() as _);
+	gladLoad(|s| (HW_RENDER.get_proc_address.unwrap_unchecked())(ptr!(s)).unwrap() as _);
+	for pname in [GL_MAX_TEXTURE_IMAGE_UNITS, GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS] {
+		let data: GLint = -1;
+		glGetIntegerv(pname, ptr!(&data));
+		logf!(INFO, "MAX_UNITS = %d\n", data);
+	}
 	const TRIANGLE_VERTICES: &[f32] = &[0.0, 1.0, -1.0, -1.0, 1.0, -1.0];
 	glGenBuffers(1, &mut VBO_TRIANGLE);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO_TRIANGLE);
@@ -293,9 +296,9 @@ r#fn!(retro_reset() {});
 r#fn!(retro_run() {
 	INPUT_POLL_CB();
 	glBindFramebuffer(GL_FRAMEBUFFER, (HW_RENDER.get_current_framebuffer.unwrap_unchecked())() as _);
-	static mut FRAME_COUNT: u8 = 0;
-	let f: f32 = if FRAME_COUNT <= 127 { 0.33 } else { 0.67 };
-	FRAME_COUNT += 4;
+	static mut FRAME_COUNT: Wrapping<usize> = Wrapping(0);
+	let f: f32 = if FRAME_COUNT.0 % 64 <= 31 { 0.33 } else { 0.67 };
+	FRAME_COUNT += 1;
 	glClearColor(f, f, f, f);
 	glViewport(0, 0, VIDEO_WIDTH as _, VIDEO_HEIGHT as _);
 	glClear(GL_COLOR_BUFFER_BIT);
