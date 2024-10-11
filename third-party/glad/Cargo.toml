@@ -1,7 +1,0 @@
-[package]
-name = "glad"
-version = "2.0.2"
-authors = ["David Herberth <github@dav1d.de>", "Des-Nerger <mixerator@rambler.ru>"]
-license = "(WTFPL OR CC0-1.0) AND Apache-2.0"
-
-[features]

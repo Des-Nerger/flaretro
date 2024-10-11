@@ -1,0 +1,22 @@
+.{
+    .name = "flaretro",
+    .version = "0.0.0-actual-version-is-specified-in-libretro.zig",
+    .minimum_zig_version = "0.14.0-dev",
+    .dependencies = .{
+        .zigglgen = .{
+            .url = "git+https://github.com/castholm/zigglgen#5f7d20e893404263f318cc71a8ffd840b6f4343f",
+            .hash = "122058ef10f75fd34b89b163cb290c77044b281561270c39423fa55946ffbde6c2d7",
+        },
+        .zigimg = .{
+            .url = "https://github.com/Altagos/zigimg/archive/cf13eae690b9c042d08feb4f0446661cf7c0ccc4.tar.gz",
+            .hash = "1220dcdd3df49d5b3cdbf279efee2a5bfbea1bb05065a569650b0688de269108e562",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE.GPL-3.0-only",
+        "LICENSE.LGPL-3.0-only",
+    },
+}
